@@ -419,6 +419,24 @@ pub struct Foo {
 }
 ```
 
+#### Errors/spans in macros
+
+An important piece of how procedural macros today work is that they're able to
+attribute errors to the macro invocation rather than somewhere randomly in the
+source. The eventual design of "macros 2.0" will allow for fully specifying span
+information on each token that's generated, but for now this RFC proposes simply
+to consider the entire `TokenStream` returned by macros to be attributed to the
+span of the macro invocation (e.g. the custom derive or the macro invocation).
+
+This way the compiler can at least target error messages at the source of
+expansion, if not at the source itself. Additionally, if a macro panics (e.g.
+with a custom error message), the compiler will be able to attribute that
+compilation failure to the macro definition site itself.
+
+Overall the experience is intended to be usable, if not great, with the
+intention of expanding `TokenStream` over time to allow consuming and
+configuring span information.
+
 # Drawbacks
 [drawbacks]: #drawbacks
 
