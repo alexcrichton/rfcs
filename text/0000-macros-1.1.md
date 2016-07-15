@@ -1,4 +1,4 @@
-- Feature Name: `rustc_plugins`
+- Feature Name: `rustc_macros`
 - Start Date: 2016-07-14
 - RFC PR: (leave this empty)
 - Rust Issue: (leave this empty)
@@ -6,12 +6,12 @@
 # Summary
 [summary]: #summary
 
-Stabilize a very small sliver of today's plugin system in the compiler, just
-enough to get basic features like custom derive working. Ensure that the
-features stabilized here will not pose a maintenance burden on the compiler but
-also don't try to stabilize enough features for the "perfect macro system" at
-the same time. Overall, this should be considered an incremental step towards an
-official "plugins 2.0".
+Stabilize a very small sliver of today's procedural macro system in the
+compiler, just enough to get basic features like custom derive working. Ensure
+that the features stabilized here will not pose a maintenance burden on the
+compiler but also don't try to stabilize enough features for the "perfect macro
+system" at the same time. Overall, this should be considered an incremental
+step towards an official "macros 2.0".
 
 # Motivation
 [motivation]: #motivation
@@ -32,15 +32,16 @@ thought process creates a culture of "well to be serious you require nightly"
 and a general feeling that Rust is not "production ready".
 
 The good news, however, is that this class of projects which require nightly
-Rust almost all require nightly for the reason of compiler plugins. Even better,
-the full functionality of plugins is rarely needed, only custom derive! The
-purpose of this RFC, as a result, is to provide these crates a method of working
-on stable Rust with the desired ergonomics one would have on nightly otherwise.
+Rust almost all require nightly for the reason of procedural macros. Even
+better, the full functionality of procedural macros is rarely needed, only
+custom derive! The purpose of this RFC, as a result, is to provide these crates
+a method of working on stable Rust with the desired ergonomics one would have
+on nightly otherwise.
 
-Unfortunately today's plugins are not without their architectural shortcomings
-as well. For example they're defined and imported with arcane syntax and don't
-participate in hygiene very well. To address these issues, there are a number of
-RFCs to develop a "plugins/macros 2.0" story:
+Unfortunately today's procedural macros are not without their architectural
+shortcomings as well. For example they're defined and imported with arcane
+syntax and don't participate in hygiene very well. To address these issues,
+there are a number of RFCs to develop a "macros 2.0" story:
 
 * [Changes to name resolution](https://github.com/rust-lang/rfcs/pull/1560)
 * [Macro naming and modularisation](https://github.com/rust-lang/rfcs/pull/1561)
@@ -53,30 +54,30 @@ understanding is that these improvements are on the time scale of years, whereas
 the problem of nightly Rust is today!
 
 As a result, it is an explicit non-goal of this RFC to architecturally improve
-on the current plugin system. The drawbacks of today's plugins will be the same
-as those proposed in this RFC. The major goal here is to simply minimize the
-exposed surface area between plugins and the compiler to ensure that the
-interface is well defined and can be stably implemented in future versions of
-the compiler as well.
+on the current procedural macro system. The drawbacks of today's procedural
+macros will be the same as those proposed in this RFC. The major goal here is
+to simply minimize the exposed surface area between procedural macros and the
+compiler to ensure that the interface is well defined and can be stably
+implemented in future versions of the compiler as well.
 
-Put another way, we currently have plugins 1.0 unstable today, we're shooting
-for plugins 2.0 stable in the far future, but this RFC is striking a middle
-ground at plugins 1.1 today!
+Put another way, we currently have macros 1.0 unstable today, we're shooting
+for macros 2.0 stable in the far future, but this RFC is striking a middle
+ground at macros 1.1 today!
 
 # Detailed design
 [design]: #detailed-design
 
-First, before looking how we're going to stabilize plugins, let's take a
-detailed look at how plugins work today.
+First, before looking how we're going to stabilize procedural macros, let's
+take a detailed look at how they work today.
 
-### Today's plugins
+### Today's procedural macros
 
-A plugin today is loaded into a crate with the `#![plugin(foo)]` annotation at
-the crate root. This in turn looks for a crate named `foo` [via the same crate
-loading mechanisms][loader] as `extern crate`, except [with the
+A procedural macro today is loaded into a crate with the `#![plugin(foo)]`
+annotation at the crate root. This in turn looks for a crate named `foo` [via
+the same crate loading mechanisms][loader] as `extern crate`, except [with the
 restriction][host-restriction] that the target triple of the crate must be the
 same as the target the compiler was compiled for. In other words, if you're on
-x86 compiling to ARM, plugins must also be compiled for x86.
+x86 compiling to ARM, macros must also be compiled for x86.
 
 [loader]: https://github.com/rust-lang/rust/blob/78d49bfac2bbcd48de522199212a1209f498e834/src/librustc_metadata/creader.rs#L480
 [host-restriction]: https://github.com/rust-lang/rust/blob/78d49bfac2bbcd48de522199212a1209f498e834/src/librustc_metadata/creader.rs#L494
@@ -89,7 +90,7 @@ symbol][symbol] in the dynamic library, and then call it with a macro context.
 [dlopen]: https://github.com/rust-lang/rust/blob/78d49bfac2bbcd48de522199212a1209f498e834/src/librustc_plugin/load.rs#L124
 [symbol]: https://github.com/rust-lang/rust/blob/78d49bfac2bbcd48de522199212a1209f498e834/src/librustc_plugin/load.rs#L136-L139
 
-So as we've seen plugins are compiled as normal crates into dynamic libraries.
+So as we've seen macros are compiled as normal crates into dynamic libraries.
 One function in the crate is tagged with `#[plugin_registrar]` which gets wired
 up to this "special symbol" the compiler wants. When the function is called with
 a macro context, it uses the passed in [plugin registry][registry] to register
@@ -97,10 +98,10 @@ custom macros, attributes, etc.
 
 [registry]: https://github.com/rust-lang/rust/blob/78d49bfac2bbcd48de522199212a1209f498e834/src/librustc_plugin/registry.rs#L30-L69
 
-After a plugin is registered, the compiler will then continue the normal process
-of expanding a crate. Whenever it encounters a macro or an attribute that was
-defined by a plugin, it will call the plugin's registration with essentially and
-AST and morally gets back a different AST to splice in or replace.
+After a macro is registered, the compiler will then continue the normal process
+of expanding a crate. Whenever the compiler encounters this macro it will call
+this registration with essentially and AST and morally gets back a different
+AST to splice in or replace.
 
 ### Today's drawbacks
 
@@ -115,29 +116,29 @@ changes to the compiler over time, so this isn't acceptable. To have a stable
 interface we'll need to cut down this surface area *dramatically* to a curated
 set of known-stable APIs.
 
-Somewhat more subtly, the technical ABI of plugins is also exposed quite thinly
-today as well. The implementation detail of dynamic libraries, and especially
-that both the compiler and the plugin dynamically link to libraries like
-libsyntax, cannot be changed. This precludes, for example, a completely
+Somewhat more subtly, the technical ABI of procedural macros is also exposed
+quite thinly today as well. The implementation detail of dynamic libraries, and
+especially that both the compiler and the macro dynamically link to libraries
+like libsyntax, cannot be changed. This precludes, for example, a completely
 statically linked compiler (e.g. compiled for `x86_64-unknown-linux-musl`).
-Another goal of this RFC will also be to hide as many of these technical details
-as possible, allowing the compiler to flexibly change how it interfaces to
-plugins.
+Another goal of this RFC will also be to hide as many of these technical
+details as possible, allowing the compiler to flexibly change how it interfaces
+to macros.
 
-## Plugins 1.1
+## Macros 1.1
 
-Ok, with the background knowledge of what plugins are today, let's take a look
-at how we can solve the major problems blocking its stabilization:
+Ok, with the background knowledge of what procedural macros are today, let's
+take a look at how we can solve the major problems blocking its stabilization:
 
 * Sharing an API of the entire compiler
-* Frozen interface between the compiler and plugins
+* Frozen interface between the compiler and macros
 
 ### `libmacro`
 
 Proposed in [RFC 1566](https://github.com/rust-lang/rfcs/pull/1566) and
 described in [this blog post](http://ncameron.org/blog/libmacro/) the
-distribution will now ship with a new `libmacro` crate available for plugin
-authors. The intention here is that the gory details of how plugins *actually*
+distribution will now ship with a new `libmacro` crate available for macro
+authors. The intention here is that the gory details of how macros *actually*
 talk to the compiler is entirely contained within this one crate. The stable
 interface to the compiler is then entirely defined in this crate, and we can
 make it as small or large as we want. Additionally, like the standard library,
@@ -174,26 +175,28 @@ converted to and from a `String`. Eventually this type will more closely
 resemble token streams in the compiler itself, and more fine-grained
 manipulations will be available as well.
 
-### Defining a plugin
+### Defining a macro
 
-A new crate type will be added to the compiler, `rustc-plugin`, indicating a
-crate that's compiled as a plugin. Like the executable, staticlib, and cdylib
-crate types the `rustc-plugin` crate type is intended to be a final product.
-What it *actually* produces is not specified, but if a `-L` path is provided to
-it then the compiler will recognize the output artifacts as a plugin and it can
-be loaded for a program.
+A new crate type will be added to the compiler, `rustc-macro`, indicating a
+crate that's compiled as a procedural macro. Like the executable, staticlib,
+and cdylib crate types the `rustc-macro` crate type is intended to be a final
+product.  What it *actually* produces is not specified, but if a `-L` path is
+provided to it then the compiler will recognize the output artifacts as a
+macro and it can be loaded for a program.
 
 Unlike today, however, there will not be a "registrar" function, but rather a
-number of functions which act as token stream tranformers to implement plugin
+number of functions which act as token stream tranformers to implement macro
 functionality.
 
-Putting this together, a plugin crate might look like:
+Putting this together, a macro crate might look like:
 
 ```rust
-#![crate_type = "rustc-plugin"]
+#![crate_type = "rustc-macro"]
 #![crate_name = "double"]
 
 extern crate macro;
+
+use macro::TokenStream;
 
 // Rough equivalent of:
 //
@@ -204,7 +207,7 @@ extern crate macro;
 // ```
 //
 // but requires `$e` to be a literal integer
-#[rustc_plugin_macro(double)]
+#[rustc_macro_define(double)]
 pub fn double(input: TokenStream) -> TokenStream {
     let input = input.to_source();
     let input = input.parse::<u64>().unwrap();
@@ -213,7 +216,7 @@ pub fn double(input: TokenStream) -> TokenStream {
     return output
 }
 
-#[rustc_plugin_derive(Double)]
+#[rustc_macro_derive(Double)]
 pub fn double(input: TokenStream) -> TokenStream {
     // Convert `input` to a string, parse a struct/enum declaration, and then
     // return back source representing a number of items representing the
@@ -223,38 +226,41 @@ pub fn double(input: TokenStream) -> TokenStream {
 }
 ```
 
-Two new attributes will be allowed inside of a `rustc-plugin` crate (disallowed
+Two new attributes will be allowed inside of a `rustc-macro` crate (disallowed
 in other crate types):
 
-* `rustc_plugin_macro` - defines a new `macro!`-style macro to be defined by
-  this plugin. The input to the macro is everything between the macro
+* `rustc_macro_define` - defines a new `macro!`-style macro to be defined by
+  this crate. The input to the macro is everything between the macro
   delimeters, and the output is the source that the macro will expand to. Note
-  that no hygiene happens here, the source is simply copy/pasted.
+  that no hygiene happens here, the source is simply copy/pasted. Additionally,
+  if an invocation like `double!(foo!())` is encountered, `foo!()` *will not be
+  expanded* ahead of time.
 
-* `rustc_plugin_derive` - defines a new `#[derive]` mode which can be used in a
+* `rustc_macro_derive` - defines a new `#[derive]` mode which can be used in a
   crate. The input here is the entire struct that `#[derive]` was attached to,
   attributes and all. The output is expected to *not* include the
   `struct`/`enum` itself, but rather a number of items to be contextually
   "placed next to" the initial declaration. Again, though, there is no hygiene,
   it's as if the source was simply copy/pasted.
 
-Each `rustc_plugin_*` attribute requires the signature:
+Each `rustc_macro_*` attribute requires the signature:
 
 ```rust
 fn(TokenStream) -> TokenStream
 ```
 
-If a plugin cannot process the input token stream, it is expected to panic. The
+If a macro cannot process the input token stream, it is expected to panic. The
 compiler will wrap up the panic message and display it to the user
 appropriately. Eventually, however, libmacro will provide more interesting
 methods of signaling errors to users.
 
-### Using a plugin
+### Using a procedural macro
 
-Using a plugin will be very similar to today's plugin system, such as:
+Using a procedural macro will be very similar to today's procedural macro
+system, such as:
 
 ```rust
-#![rustc_plugin(double)]
+#![rustc_macro_crate(double)]
 
 #[derive(Double)]
 pub struct Foo;
@@ -264,36 +270,36 @@ fn main() {
 }
 ```
 
-That is, the `#![rustc_plugin]` attribute, required at the crate root, will
-search for a crate compiled with the `rustc-plugin` crate type. If found, the
-crate will be loaded (not specified how) and the derive modes and macros will be
-available to the entire crate.
+That is, the `#![rustc_macro_crate]` attribute, required at the crate root,
+will search for a crate compiled with the `rustc-macro` crate type. If found,
+the crate will be loaded (not specified how) and the derive modes and macros
+will be available to the entire crate.
 
-Macro-rules (`macro_rules!`) macros can shadow those defined in plugins, but
-plugins themselves are not allowed to shadow one another. It will be a compiler
-error to load two plugins that define the same derive mode or same-named macros.
+For now, only one argument to `#![rustc_macro_crate]` will be allowed. Macros
+and derive modes will shadow one another, with the last-mentioned
+`#![rustc_macro_crate]` attribute taking precedence.
 
 ### Initial implementation details
 
-This section lays out what the initial implementation details of plugins 1.1
+This section lays out what the initial implementation details of macros 1.1
 will look like, but none of this will be specified as a stable interface to the
 compiler. These exact details are subject to change over time as the
 requirements of the compiler change, and even amongst platforms these details
 may be subtly different.
 
-The compiler will essentially consider `rustc-plugin` crates as `--crate-type
+The compiler will essentially consider `rustc-macro` crates as `--crate-type
 dylib -C prefer-dyanmic`. That is, compiled the same way they are today. This
-namely means that these plugins will dynamically link to the same standard
+namely means that these macros  will dynamically link to the same standard
 library as the compiler itself, therefore sharing resources like a global
 allocator, etc.
 
 The `libmacro` crate will compiled as an rlib and a static copy of it will be
-included in each plugin. This crate will provide a symbol known by the compiler
-that can be dynamically loaded. The compiler will `dlopen` a plugin in the same
-way it does today, find this symbol in `libmacro`, and call it.
+included in each macro. This crate will provide a symbol known by the compiler
+that can be dynamically loaded. The compiler will `dlopen` a macro crate in the
+same way it does today, find this symbol in `libmacro`, and call it.
 
-The `rustc_plugin_macro` and `rustc_plugin_derive` attributes will be encoded
-into the plugin's metadata, and the compiler will discover all these functions,
+The `rustc_macro_define` and `rustc_macro_derive` attributes will be encoded
+into the crate's metadata, and the compiler will discover all these functions,
 load their function pointers, and pass them to the `libmacro` entry point as
 well. This provides the opportunity to register all the various expansion
 mechanisms with the compiler.
@@ -308,34 +314,35 @@ implemented and proven out on nightly, of course). The summary of pieces that
 would become stable are:
 
 * The `macro` crate, and a small set of APIs within (skeleton above)
-* The `rustc-plugin` crate type
-* The `#[rustc_plugin_derive]` attribute
-* The `#[rustc_plugin_macro]` attribute (optional)
-* The signature of the `#![rustc_plugin_{macro,derive}]` functions
-* The `#![rustc_plugin]` attribute
-* Semantically being able to load plugins compiled as `rustc-plugin` into the
-  compiler, requiring that the plugins was compiled by the exact compiler.
-* The semantic behavior of plugins today, including:
+* The `rustc-macro` crate type
+* The `#[rustc_macro_derive]` attribute
+* The `#[rustc_macro_define]` attribute (optional)
+* The signature of the `#![rustc_macro_{define,derive}]` functions
+* The `#![rustc_macro_crate]` attribute
+* Semantically being able to load macro crates compiled as `rustc-macro` into
+  the compiler, requiring that the crate was compiled by the exact compiler.
+* The semantic behavior of macros today, including:
   * Derive modes and macros are not imported, they're just dumped into the crate
     root.
   * Lack of hygiene for both
+  * Shadowing behavior if you load multiple macro crates
 
-### Plugins 1.1 in practice
+### Macros 1.1 in practice
 
 Alright, that's a lot to take in! Let's take a look at what this is all going to
 look like in practice, focusing on a case study of `#[derive(Serialize)]` for
 serde.
 
-First off, serde will provide a crate, let's call it `serde_plugin`. The
+First off, serde will provide a crate, let's call it `serde_macros`. The
 `Cargo.toml` will look like:
 
 ```toml
 [package]
-name = "serde-plugin"
+name = "serde-macros"
 # ...
 
 [lib]
-rustc-plugin = true
+rustc-macro = true
 
 [dependencies]
 # ...
@@ -349,7 +356,7 @@ extern crate syntex_syntax;
 
 use macro::TokenStream;
 
-#[rustc_plugin_derive(Serialize)]
+#[rustc_macro_derive(Serialize)]
 pub fn derive_serialize(input: TokenStream) -> TokenStream {
     let input = input.to_source();
 
@@ -369,14 +376,14 @@ Next, crates will depend on this such as:
 
 ```toml
 [dependencies]
-serde-plugin = "0.9"
+serde-macros = "0.9"
 serde = "0.9"
 ```
 
 And finally use it as such:
 
 ```rust
-#![rustc_plugin(serde_plugin)]
+#![rustc_macro_crate(serde_macros)]
 extern crate serde;
 
 #[derive(Serialize)]
@@ -391,24 +398,25 @@ pub struct Foo {
 [drawbacks]: #drawbacks
 
 * This is not an interface that anyone would wish to stabilize in a void, there
-  are a number of known drawbacks to the current plugin system in terms of how
+  are a number of known drawbacks to the current macro system in terms of how
   it architecturally fits into the compiler. Additionally, there's work underway
-  to solve all these problems with plugins 2.0.
+  to solve all these problems with macros 2.0.
 
-  As mentioned before, however, the stable version of plugins 2.0 is currently
+  As mentioned before, however, the stable version of macros 2.0 is currently
   quite far off, and the desire for features like custom derive are very real
   today. The rationale behind this RFC is that the downsides are an acceptable
   tradeoff from moving a significat portion of the nightly ecosystem onto stable
   Rust.
 
-* This implementation is likely to be less performant than plugins are today.
-  Round tripping through strings isn't always a speedy operation, especially for
-  larger expantions. Strings, however, are a very small implementation detail
-  that's easy to see stabilized until the end of time. Additionally, it's
-  planned to extend the `TokenStream` API in the future to allow more
-  fine-grained transformations without having to round trip through strings.
+* This implementation is likely to be less performant than procedural macros
+  are today. Round tripping through strings isn't always a speedy operation,
+  especially for larger expantions. Strings, however, are a very small
+  implementation detail that's easy to see stabilized until the end of time.
+  Additionally, it's planned to extend the `TokenStream` API in the future to
+  allow more fine-grained transformations without having to round trip through
+  strings.
 
-* Users will still have an inferior experience to today's nightly plugins
+* Users will still have an inferior experience to today's nightly macros
   specifically with respect to compile times. The `syntex_syntax` crate takes
   quite a few seconds to compile, and this would be required by any crate which
   uses serde. To offset this, though, the `syntex_syntax` could be *massively*
@@ -419,11 +427,11 @@ pub struct Foo {
 # Alternatives
 [alternatives]: #alternatives
 
-* Wait for plugins 2.0, but this likely comes with the high cost of postponing a
+* Wait for macros 2.0, but this likely comes with the high cost of postponing a
   stable custom-derive experience on the time scale of years.
 
 * Don't stabilize `macro` as a new crate, but rather specify that
-  `#[rustc_plugin_derive]` has a stable-ABI friendly signature. This does not
+  `#[rustc_macro_derive]` has a stable-ABI friendly signature. This does not
   account, however, for the eventual planned introduction of the `macro` crate
   and is significantly harder to write. The marginal benefit of being slightly
   more flexible about how it's run likely isn't worth it.
@@ -431,5 +439,5 @@ pub struct Foo {
 # Unresolved questions
 [unresolved]: #unresolved-questions
 
-* Is the interface between plugins and the compiler actually general enough to
+* Is the interface between macros and the compiler actually general enough to
   be implemented differently one day?
