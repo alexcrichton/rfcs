@@ -159,6 +159,10 @@ pub struct FromSourceError {
     // ...
 }
 
+pub struct MacroContext {
+    // ...
+}
+
 impl TokenStream {
     pub fn from_source(source: &str) -> Result<TokenStream, FromSourceError> {
         // ...
@@ -170,10 +174,18 @@ impl TokenStream {
 }
 ```
 
-That is, the only exposed type will be a `TokenStream` type which can be
-converted to and from a `String`. Eventually this type will more closely
-resemble token streams in the compiler itself, and more fine-grained
-manipulations will be available as well.
+That is, there will only be a handful of exposed types and `TokenStream` can
+only be converted to and from a `String`. Eventually `TokenStream` type will
+more closely resemble token streams [in the compiler
+itself][compiler-tokenstream], and more fine-grained manipulations will be
+available as well.
+
+Additionally, the `MacroContext` structure will initially be completely devoid
+of functionality, but in the future it will be the entry point for [many other
+features][macro20] one would expect in macros 2.0
+
+[compiler-tokenstream]: https://github.com/rust-lang/rust/blob/master/src/libsyntax/tokenstream.rs#L323-L338
+[macro20]: http://ncameron.org/blog/libmacro/
 
 ### Defining a macro
 
@@ -196,7 +208,7 @@ Putting this together, a macro crate might look like:
 
 extern crate macro;
 
-use macro::TokenStream;
+use macro::{MacroContext, TokenStream};
 
 // Rough equivalent of:
 //
@@ -208,7 +220,7 @@ use macro::TokenStream;
 //
 // but requires `$e` to be a literal integer
 #[rustc_macro_define(double)]
-pub fn double(input: TokenStream) -> TokenStream {
+pub fn double(_cx: &mut MacroContext, input: TokenStream) -> TokenStream {
     let input = input.to_source();
     let input = input.parse::<u64>().unwrap();
     let output = (2 * input).to_string();
@@ -217,7 +229,7 @@ pub fn double(input: TokenStream) -> TokenStream {
 }
 
 #[rustc_macro_derive(Double)]
-pub fn double(input: TokenStream) -> TokenStream {
+pub fn double(_cx: &mut MacroContext, input: TokenStream) -> TokenStream {
     // Convert `input` to a string, parse a struct/enum declaration, and then
     // return back source representing a number of items representing the
     // implementation of the `Double` trait for the struct/enum in question.
@@ -243,16 +255,20 @@ in other crate types):
   "placed next to" the initial declaration. Again, though, there is no hygiene,
   it's as if the source was simply copy/pasted.
 
-Each `rustc_macro_*` attribute requires the signature:
+Each `rustc_macro_*` attribute requires the signature (similar to [macros
+2.0][mac20sig]):
+
+[mac20sig]: http://ncameron.org/blog/libmacro/#tokenisingandquasiquoting
 
 ```rust
-fn(TokenStream) -> TokenStream
+fn(&mut MacroContext, TokenStream) -> TokenStream
 ```
 
-If a macro cannot process the input token stream, it is expected to panic. The
-compiler will wrap up the panic message and display it to the user
-appropriately. Eventually, however, libmacro will provide more interesting
-methods of signaling errors to users.
+If a macro cannot process the input token stream, it is expected to panic,
+although eventually it will call methods on `MacroContext` to provide more
+structured errors. The compiler will wrap up the panic message and display it to
+the user appropriately. Eventually, however, libmacro will provide more
+interesting methods of signaling errors to users.
 
 ### Using a procedural macro
 
@@ -354,10 +370,11 @@ The contents will look similar to
 extern crate macro;
 extern crate syntex_syntax;
 
-use macro::TokenStream;
+use macro::{MacroContext, TokenStream};
 
 #[rustc_macro_derive(Serialize)]
-pub fn derive_serialize(input: TokenStream) -> TokenStream {
+pub fn derive_serialize(_cx: &mut MacroContext,
+                        input: TokenStream) -> TokenStream {
     let input = input.to_source();
 
     // use syntex_syntax from crates.io to parse `input` into an AST
@@ -436,8 +453,21 @@ pub struct Foo {
   and is significantly harder to write. The marginal benefit of being slightly
   more flexible about how it's run likely isn't worth it.
 
+* The syntax for defining a macro will likely be different in the macros 2.0
+  world, that is it probably won't involve a function attribute like
+  `#[rustc_macro_derive]`. This interim system could possibly use this syntax as
+  well, but it's unclear whether we have a concrete enough idea in mind to
+  implement today.
+
 # Unresolved questions
 [unresolved]: #unresolved-questions
 
 * Is the interface between macros and the compiler actually general enough to
   be implemented differently one day?
+
+* The intention of macros 1.1 is to be *as close as possible* to macros 2.0 in
+  spirit and implementation, just without stabilizing vast quantities of
+  features. In that sense, it is the intention that given a stable macros 1.1,
+  we can layer on features backwards-compatibly to get to macros 2.0. Right now,
+  though, the delta between what this RFC proposes and where we'd like to is
+  very small, and can get get it down to actually zero?
