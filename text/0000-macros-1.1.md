@@ -525,6 +525,13 @@ pub struct Foo {
   run. It's currently understood that *only* custom derive is needed to move
   crates like serde and diesel onto stable Rust.
 
+* Instead of having a global namespace of `#[derive]` modes which `rustc-macro`
+  crates append to, we could at least require something along the lines of
+  `#[derive(serde_macros::Deserialize)]`. This is unfortunately, however, still
+  disconnected from what name resolution will actually be eventually and also
+  deviates from what you actually may want, `#[derive(serde::Deserialize)]`, for
+  example.
+
 # Unresolved questions
 [unresolved]: #unresolved-questions
 
