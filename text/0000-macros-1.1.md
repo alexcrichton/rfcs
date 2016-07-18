@@ -155,7 +155,7 @@ pub struct TokenStream {
 }
 
 #[derive(Debug)]
-pub struct FromSourceError {
+pub struct LexError {
     // ...
 }
 
@@ -164,11 +164,12 @@ pub struct MacroContext {
 }
 
 impl TokenStream {
-    pub fn from_source(source: &str) -> Result<TokenStream, FromSourceError> {
+    pub fn from_source(cx: &mut MacroContext,
+                        source: &str) -> Result<TokenStream, LexError> {
         // ...
     }
 
-    pub fn to_source(&self) -> String {
+    pub fn to_source(&self, cx: &mut MacroContext) -> String {
         // ...
     }
 }
@@ -206,9 +207,9 @@ Putting this together, a macro crate might look like:
 #![crate_type = "rustc-macro"]
 #![crate_name = "double"]
 
-extern crate macro;
+extern crate rustc_macro;
 
-use macro::{MacroContext, TokenStream};
+use rustc_macro::{MacroContext, TokenStream};
 
 // Rough equivalent of:
 //
@@ -220,16 +221,16 @@ use macro::{MacroContext, TokenStream};
 //
 // but requires `$e` to be a literal integer
 #[rustc_macro_define(double)]
-pub fn double(_cx: &mut MacroContext, input: TokenStream) -> TokenStream {
-    let input = input.to_source();
+pub fn double(cx: &mut MacroContext, input: TokenStream) -> TokenStream {
+    let input = input.to_source(cx);
     let input = input.parse::<u64>().unwrap();
     let output = (2 * input).to_string();
-    let output = TokenStream::from_source(&output).unwrap();
+    let output = TokenStream::from_source(cx, &output).unwrap();
     return output
 }
 
 #[rustc_macro_derive(Double)]
-pub fn double(_cx: &mut MacroContext, input: TokenStream) -> TokenStream {
+pub fn double(cx: &mut MacroContext, input: TokenStream) -> TokenStream {
     // Convert `input` to a string, parse a struct/enum declaration, and then
     // return back source representing a number of items representing the
     // implementation of the `Double` trait for the struct/enum in question.
@@ -250,8 +251,8 @@ in other crate types):
 
 * `rustc_macro_derive` - defines a new `#[derive]` mode which can be used in a
   crate. The input here is the entire struct that `#[derive]` was attached to,
-  attributes and all. The output is expected to *not* include the
-  `struct`/`enum` itself, but rather a number of items to be contextually
+  attributes and all. The output is **expected to include the
+  `struct`/`enum` itself**, as well as any number of items to be contextually
   "placed next to" the initial declaration. Again, though, there is no hygiene,
   it's as if the source was simply copy/pasted.
 
@@ -264,11 +265,16 @@ Each `rustc_macro_*` attribute requires the signature (similar to [macros
 fn(&mut MacroContext, TokenStream) -> TokenStream
 ```
 
-If a macro cannot process the input token stream, it is expected to panic,
-although eventually it will call methods on `MacroContext` to provide more
-structured errors. The compiler will wrap up the panic message and display it to
-the user appropriately. Eventually, however, libmacro will provide more
+If a macro cannot process the input token stream, it is expected to panic for
+now, although eventually it will call methods on `MacroContext` to provide more
+structured errors. The compiler will wrap up the panic message and display it
+to the user appropriately. Eventually, however, libmacro will provide more
 interesting methods of signaling errors to users.
+
+Customization of user-defined `#[derive]` modes can still be done through custom
+attributes, although it will be required for `rustc_macro_derive`
+implementations to remove these attributes when handing them back to the
+compiler. The compiler will still gate unknown attributes by default.
 
 ### Using a procedural macro
 
@@ -321,7 +327,8 @@ well. This provides the opportunity to register all the various expansion
 mechanisms with the compiler.
 
 The actual underlying representation of `TokenStream` will be basically the same
-as it is in the compiler today. (the details on this are a little light)
+as it is in the compiler today. (the details on this are a little light
+intentionally, shouldn't be much need to go into *too* much detail).
 
 ## Pieces to stabilize
 
@@ -329,7 +336,7 @@ Eventually this RFC is intended to be considered for stabilization (after it's
 implemented and proven out on nightly, of course). The summary of pieces that
 would become stable are:
 
-* The `macro` crate, and a small set of APIs within (skeleton above)
+* The `rustc_macro` crate, and a small set of APIs within (skeleton above)
 * The `rustc-macro` crate type
 * The `#[rustc_macro_derive]` attribute
 * The `#[rustc_macro_define]` attribute (optional)
@@ -447,11 +454,11 @@ pub struct Foo {
 * Wait for macros 2.0, but this likely comes with the high cost of postponing a
   stable custom-derive experience on the time scale of years.
 
-* Don't stabilize `macro` as a new crate, but rather specify that
+* Don't stabilize `rustc_macro` as a new crate, but rather specify that
   `#[rustc_macro_derive]` has a stable-ABI friendly signature. This does not
-  account, however, for the eventual planned introduction of the `macro` crate
-  and is significantly harder to write. The marginal benefit of being slightly
-  more flexible about how it's run likely isn't worth it.
+  account, however, for the eventual planned introduction of the `rustc_macro`
+  crate and is significantly harder to write. The marginal benefit of being
+  slightly more flexible about how it's run likely isn't worth it.
 
 * The syntax for defining a macro will likely be different in the macros 2.0
   world, that is it probably won't involve a function attribute like
