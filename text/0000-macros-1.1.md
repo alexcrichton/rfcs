@@ -135,19 +135,19 @@ take a look at how we can solve the major problems blocking its stabilization:
 * Sharing an API of the entire compiler
 * Frozen interface between the compiler and macros
 
-### `libmacro`
+### `librustc_macro`
 
 Proposed in [RFC 1566](https://github.com/rust-lang/rfcs/pull/1566) and
 described in [this blog post](http://ncameron.org/blog/libmacro/) the
-distribution will now ship with a new `libmacro` crate available for macro
+distribution will now ship with a new `librustc_macro` crate available for macro
 authors. The intention here is that the gory details of how macros *actually*
 talk to the compiler is entirely contained within this one crate. The stable
 interface to the compiler is then entirely defined in this crate, and we can
 make it as small or large as we want. Additionally, like the standard library,
 it can contain unstable APIs to test out new pieces of functionality over time.
 
-The initial implementation of `libmacro` is proposed to be *incredibly* bare
-bones:
+The initial implementation of `librustc_macro` is proposed to be *incredibly*
+bare bones:
 
 ```rust
 #![crate_name = "macro"]
@@ -270,7 +270,7 @@ fn(&mut MacroContext, TokenStream) -> TokenStream
 If a macro cannot process the input token stream, it is expected to panic for
 now, although eventually it will call methods on `MacroContext` to provide more
 structured errors. The compiler will wrap up the panic message and display it
-to the user appropriately. Eventually, however, libmacro will provide more
+to the user appropriately. Eventually, however, librustc\_macro will provide more
 interesting methods of signaling errors to users.
 
 Customization of user-defined `#[derive]` modes can still be done through custom
@@ -317,15 +317,16 @@ namely means that these macros  will dynamically link to the same standard
 library as the compiler itself, therefore sharing resources like a global
 allocator, etc.
 
-The `libmacro` crate will compiled as an rlib and a static copy of it will be
-included in each macro. This crate will provide a symbol known by the compiler
-that can be dynamically loaded. The compiler will `dlopen` a macro crate in the
-same way it does today, find this symbol in `libmacro`, and call it.
+The `librustc_macro` crate will compiled as an rlib and a static copy of it
+will be included in each macro. This crate will provide a symbol known by the
+compiler that can be dynamically loaded. The compiler will `dlopen` a macro
+crate in the same way it does today, find this symbol in `librustc_macro`, and
+call it.
 
 The `rustc_macro_define` and `rustc_macro_derive` attributes will be encoded
 into the crate's metadata, and the compiler will discover all these functions,
-load their function pointers, and pass them to the `libmacro` entry point as
-well. This provides the opportunity to register all the various expansion
+load their function pointers, and pass them to the `librustc_macro` entry point
+as well. This provides the opportunity to register all the various expansion
 mechanisms with the compiler.
 
 The actual underlying representation of `TokenStream` will be basically the same
