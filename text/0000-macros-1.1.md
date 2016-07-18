@@ -376,7 +376,7 @@ rustc-macro = true
 The contents will look similar to
 
 ```rust
-extern crate macro;
+extern crate rustc_macro;
 extern crate syntex_syntax;
 
 use macro::{MacroContext, TokenStream};
