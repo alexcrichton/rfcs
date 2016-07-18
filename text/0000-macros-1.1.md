@@ -108,7 +108,7 @@ AST to splice in or replace.
 ### Today's drawbacks
 
 This expansion process suffers from many of the downsides mentioned in the
-motiviation section, such as a lack of hygiene, a lack of modularity, and the
+motivation section, such as a lack of hygiene, a lack of modularity, and the
 inability to import macros as you would normally other functionality in the
 module system.
 
@@ -464,7 +464,7 @@ pub struct Foo {
 
 * This implementation is likely to be less performant than procedural macros
   are today. Round tripping through strings isn't always a speedy operation,
-  especially for larger expantions. Strings, however, are a very small
+  especially for larger expansions. Strings, however, are a very small
   implementation detail that's easy to see stabilized until the end of time.
   Additionally, it's planned to extend the `TokenStream` API in the future to
   allow more fine-grained transformations without having to round trip through
@@ -477,6 +477,23 @@ pub struct Foo {
   stripped down as all it needs to do is parse struct declarations mostly. There
   are likely many other various optimizations to compile time that can be
   applied to ensure that it compiles quickly.
+
+* Plugin authors will need to be quite careful about the code which they
+  generate as working with strings loses much of the expressiveness of macros in
+  Rust today. For example:
+
+  ```rust
+  macro_rules! foo {
+      ($x:expr) => {
+          #[derive(Serialize)]
+          enum Foo { Bar = $x, Baz = $x * 2 }
+      }
+  }
+  foo!(1 + 1);
+  ```
+
+  Plugin authors would have to ensure that this is not naively interpreted as
+  `Baz = 1 + 1 * 2` as this will cause incorrect results.
 
 # Alternatives
 [alternatives]: #alternatives
