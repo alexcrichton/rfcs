@@ -167,7 +167,7 @@ pub struct MacroContext {
 
 impl TokenStream {
     pub fn from_source(cx: &mut MacroContext,
-                        source: &str) -> Result<TokenStream, LexError> {
+                       source: &str) -> Result<TokenStream, LexError> {
         // ...
     }
 
