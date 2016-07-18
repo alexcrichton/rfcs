@@ -192,18 +192,13 @@ features][macro20] one would expect in macros 2.0
 
 ### Defining a macro
 
-A new crate type will be added to the compiler, `rustc-macro`, indicating a
-crate that's compiled as a procedural macro. Like the executable, staticlib,
-and cdylib crate types the `rustc-macro` crate type is intended to be a final
-product.  What it *actually* produces is not specified, but if a `-L` path is
-provided to it then the compiler will recognize the output artifacts as a
-macro and it can be loaded for a program.
-
-Unlike today, however, there will not be a "registrar" function, but rather a
-number of functions which act as token stream tranformers to implement macro
+A new crate type will be added to the compiler, `rustc-macro` (described below),
+indicating a crate that's compiled as a procedural macro. There will not be a
+"registrar" function in this crate type (like there is today), but rather a
+number of functions which act as token stream transformers to implement macro
 functionality.
 
-Putting this together, a macro crate might look like:
+A macro crate might look like:
 
 ```rust
 #![crate_type = "rustc-macro"]
@@ -213,52 +208,37 @@ extern crate rustc_macro;
 
 use rustc_macro::{Context, TokenStream};
 
-// Rough equivalent of:
-//
-// ```
-// macro_rules! double {
-//     ($e:expr) => (2 * $e)
-// }
-// ```
-//
-// but requires `$e` to be a literal integer
-#[rustc_macro_define(double)]
-pub fn double(cx: &mut Context, input: TokenStream) -> TokenStream {
-    let input = input.to_source(cx);
-    let input = input.parse::<u64>().unwrap();
-    let output = (2 * input).to_string();
-    let output = TokenStream::from_source(cx, &output).unwrap();
-    return output
-}
-
 #[rustc_macro_derive(Double)]
 pub fn double(cx: &mut Context, input: TokenStream) -> TokenStream {
-    // Convert `input` to a string, parse a struct/enum declaration, and then
-    // return back source representing a number of items representing the
-    // implementation of the `Double` trait for the struct/enum in question.
+    let source = input.to_source(cx);
 
-    // ...
+    // Parse `source` for struct/enum declaration, and then build up some new
+    // source code representing representing a number of items in the
+    // implementation of the `Double` trait for the struct/enum in question.
+    let source = derive_double(cx, source);
+
+    // Parse this back to a token stream and return it
+    TokenStream::from_source(cx, &source).unwrap()
 }
 ```
 
-Two new attributes will be allowed inside of a `rustc-macro` crate (disallowed
-in other crate types):
+This new `rustc_macro_derive` attribute will be allowed inside of a
+`rustc-macro` crate but disallowed in other crate types. It defines a new
+`#[derive]` mode which can be used in a crate. The input here is the entire
+struct that `#[derive]` was attached to, attributes and all. The output is
+**expected to include the `struct`/`enum` itself** as well as any number of
+items to be contextually "placed next to" the initial declaration.
 
-* `rustc_macro_define` - defines a new `macro!`-style macro to be defined by
-  this crate. The input to the macro is everything between the macro
-  delimeters, and the output is the source that the macro will expand to. Note
-  that no hygiene happens here, the source is simply copy/pasted. Additionally,
-  if an invocation like `double!(foo!())` is encountered, `foo!()` *will not be
-  expanded* ahead of time.
+Again, though, there is no hygiene, it's as if the source was simply
+copy/pasted. All span information for the `TokenStream` structures returned by
+`from_source` will point to the original `#[derive]` annotation. This means
+that error messages related to struct definitions will get *worse* if they have
+a custom derive attribute placed on them, because the entire struct's span will
+get folded into the `#[derive]` annotation. Eventually, though, more span
+information will be stable on the `TokenStream` type, so this is just a
+temporary limitation.
 
-* `rustc_macro_derive` - defines a new `#[derive]` mode which can be used in a
-  crate. The input here is the entire struct that `#[derive]` was attached to,
-  attributes and all. The output is **expected to include the
-  `struct`/`enum` itself**, as well as any number of items to be contextually
-  "placed next to" the initial declaration. Again, though, there is no hygiene,
-  it's as if the source was simply copy/pasted.
-
-Each `rustc_macro_*` attribute requires the signature (similar to [macros
+The `rustc_macro_derive` attribute requires the signature (similar to [macros
 2.0][mac20sig]):
 
 [mac20sig]: http://ncameron.org/blog/libmacro/#tokenisingandquasiquoting
@@ -270,38 +250,67 @@ fn(&mut Context, TokenStream) -> TokenStream
 If a macro cannot process the input token stream, it is expected to panic for
 now, although eventually it will call methods on `Context` to provide more
 structured errors. The compiler will wrap up the panic message and display it
-to the user appropriately. Eventually, however, librustc\_macro will provide more
-interesting methods of signaling errors to users.
+to the user appropriately. Eventually, however, `librustc_macro` will provide
+more interesting methods of signaling errors to users.
 
 Customization of user-defined `#[derive]` modes can still be done through custom
 attributes, although it will be required for `rustc_macro_derive`
 implementations to remove these attributes when handing them back to the
 compiler. The compiler will still gate unknown attributes by default.
 
+### `rustc-macro` crates
+
+Like the executable, staticlib, and cdylib crate types, the `rustc-macro` crate
+type is intended to be a final product.  What it *actually* produces is not
+specified, but if a `-L` path is provided to it then the compiler will recognize
+the output artifacts as a macro and it can be loaded for a program.
+
+Initially if a crate is compiled with the `rustc-macro` crate type (and possibly
+others) it will forbid exporting any items in the crate other than those
+functions tagged `#[rustc_macro_derive]` and those functions must also be placed
+at the crate root. Finally, the compiler will automatically set the
+`cfg(rustc_macro)` annotation whenever any crate type of a compilation is the
+`rustc-macro` crate type.
+
+While these properties may seem a bit odd, they're intended to allow a number of
+forwards-compatible extensions to be implemented in macros 2.0:
+
+* Macros eventually want to be imported from crates (e.g. `use foo::bar!`) and
+  limiting where `#[derive]` can be defined reduces the surface area for
+  possible conflict.
+* Macro crates eventually want to be compiled to be available both at runtime
+  and at compile time. That is, an `extern crate foo` annotation may load
+  *both* a `rustc-macro` crate and a crate to link against, if they are
+  available. Limiting the public exports for now to only custom-derive
+  annotations should allow for maximal flexibility here.
+
 ### Using a procedural macro
 
-Using a procedural macro will be very similar to today's procedural macro
-system, such as:
+Using a procedural macro will be very similar to today's `extern crate` system,
+such as:
 
 ```rust
-#![rustc_macro_crate(double)]
+extern crate double;
 
 #[derive(Double)]
 pub struct Foo;
 
 fn main() {
-    println!("{}", double!(2));
+    // ...
 }
 ```
 
-That is, the `#![rustc_macro_crate]` attribute, required at the crate root,
-will search for a crate compiled with the `rustc-macro` crate type. If found,
-the crate will be loaded (not specified how) and the derive modes and macros
-will be available to the entire crate.
+That is, the `extern crate` directive will now also be enhanced to look for
+crates compiled as `rustc-macro` in addition to those compiled as `dylib` and
+`rlib`. Today this will be temporarily limited to finding *either* a
+`rustc-macro` crate or an rlib/dylib pair compiled for the target, but this
+restriction may be lifted in the future.
 
-For now, only one argument to `#![rustc_macro_crate]` will be allowed. Macros
-and derive modes will shadow one another, with the last-mentioned
-`#![rustc_macro_crate]` attribute taking precedence.
+The custom derive annotations loaded from `rustc-macro` crates today will all be
+placed into the same global namespace. Any conflicts (shadowing) will cause the
+compiler to generate an error, and it must be resolved by loading only one or
+the other of the `rustc-macro` crates (eventually this will be solved with a
+more principled `use` system in macros 2.0).
 
 ### Initial implementation details
 
@@ -333,6 +342,26 @@ The actual underlying representation of `TokenStream` will be basically the same
 as it is in the compiler today. (the details on this are a little light
 intentionally, shouldn't be much need to go into *too* much detail).
 
+### Initial Cargo integration
+
+Like plugins today, Cargo needs to understand which crates are `rustc-macro`
+crates and which aren't. Cargo additionally needs to understand this to sequence
+compilations correctly and ensure that `rustc-macro` crates are compiled for the
+host platform. To this end, Cargo will understand a new attribute in the `[lib]`
+section:
+
+```toml
+[lib]
+rustc-macro = true
+```
+
+This annotation indicates that the crate being compiled should be compiled as a
+`rustc-macro` crate type for the host platform in the current compilation.
+
+Eventually Cargo may also grow support to understand that a `rustc-macro` crate
+should be compiled twice, once for the host and once for the target, but this is
+intended to be a backwards-compatible extension to Cargo.
+
 ## Pieces to stabilize
 
 Eventually this RFC is intended to be considered for stabilization (after it's
@@ -340,18 +369,16 @@ implemented and proven out on nightly, of course). The summary of pieces that
 would become stable are:
 
 * The `rustc_macro` crate, and a small set of APIs within (skeleton above)
-* The `rustc-macro` crate type
+* The `rustc-macro` crate type, in addition to its current limitations
 * The `#[rustc_macro_derive]` attribute
-* The `#[rustc_macro_define]` attribute (optional)
-* The signature of the `#![rustc_macro_{define,derive}]` functions
+* The signature of the `#![rustc_macro_derive]` functions
 * The `#![rustc_macro_crate]` attribute
 * Semantically being able to load macro crates compiled as `rustc-macro` into
   the compiler, requiring that the crate was compiled by the exact compiler.
-* The semantic behavior of macros today, including:
-  * Derive modes and macros are not imported, they're just dumped into the crate
-    root.
-  * Lack of hygiene for both
-  * Shadowing behavior if you load multiple macro crates
+* The semantic behavior of loading custom derive annotations, in that they're
+  just all added to the same global namespace with errors on conflicts.
+  Additionally, definitions end up having no hygiene for now.
+* The `rustc-macro = true` attribute in Cargo
 
 ### Macros 1.1 in practice
 
@@ -371,7 +398,7 @@ name = "serde-macros"
 rustc-macro = true
 
 [dependencies]
-# ...
+syntex_syntax = "0.38.0"
 ```
 
 The contents will look similar to
@@ -403,15 +430,15 @@ Next, crates will depend on this such as:
 
 ```toml
 [dependencies]
-serde-macros = "0.9"
 serde = "0.9"
+serde-macros = "0.9"
 ```
 
 And finally use it as such:
 
 ```rust
-#![rustc_macro_crate(serde_macros)]
 extern crate serde;
+extern crate serde_macros;
 
 #[derive(Serialize)]
 pub struct Foo {
@@ -424,15 +451,15 @@ pub struct Foo {
 # Drawbacks
 [drawbacks]: #drawbacks
 
-* This is not an interface that anyone would wish to stabilize in a void, there
-  are a number of known drawbacks to the current macro system in terms of how
-  it architecturally fits into the compiler. Additionally, there's work underway
-  to solve all these problems with macros 2.0.
+* This is not an interface that would be considered for stabilization in a void,
+  there are a number of known drawbacks to the current macro system in terms of
+  how it architecturally fits into the compiler. Additionally, there's work
+  underway to solve all these problems with macros 2.0.
 
   As mentioned before, however, the stable version of macros 2.0 is currently
   quite far off, and the desire for features like custom derive are very real
   today. The rationale behind this RFC is that the downsides are an acceptable
-  tradeoff from moving a significat portion of the nightly ecosystem onto stable
+  tradeoff from moving a significant portion of the nightly ecosystem onto stable
   Rust.
 
 * This implementation is likely to be less performant than procedural macros
@@ -473,12 +500,13 @@ pub struct Foo {
   compiler data structures in thread-local-storage. This would avoid threading
   around an extra parameter and perhaps wouldn't lose too much flexibility.
 
-* Instead of `#![rustc_macro_crate]` macro crates could be loaded with `extern
-  crate foo` instead. The downsides of this are that the compiler would have to
-  generate an error if you import paths from it, so it doesn't behave like other
-  `extern crate` statements, and the compiler also doesn't know whether to look
-  for a target or host crate when it encounters such a definition. If both are
-  found it doesn't know which is the right to choose as well.
+* In addition to allowing definition of custom-derive forms, definition of
+  custom procedural macros could also be allowed. They are similarly
+  transformers from token streams to token streams, so the interface in this RFC
+  would perhaps be appropriate. This addition, however, adds more surface area
+  to this RFC and the macro 1.1 system which may not be necessary in the long
+  run. It's currently understood that *only* custom derive is needed to move
+  crates like serde and diesel onto stable Rust.
 
 # Unresolved questions
 [unresolved]: #unresolved-questions
@@ -492,3 +520,9 @@ pub struct Foo {
   we can layer on features backwards-compatibly to get to macros 2.0. Right now,
   though, the delta between what this RFC proposes and where we'd like to is
   very small, and can get get it down to actually zero?
+
+* Eventually macro crates will want to be loaded both at compile time and
+  runtime, and this means that Cargo will need to understand to compile these
+  crates twice, once as `rustc-macro` and once as an rlib. Does Cargo have
+  enough information to do this? Are the extensions needed here
+  backwards-compatible?
