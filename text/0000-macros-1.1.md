@@ -161,17 +161,17 @@ pub struct LexError {
     // ...
 }
 
-pub struct MacroContext {
+pub struct Context {
     // ...
 }
 
 impl TokenStream {
-    pub fn from_source(cx: &mut MacroContext,
+    pub fn from_source(cx: &mut Context,
                        source: &str) -> Result<TokenStream, LexError> {
         // ...
     }
 
-    pub fn to_source(&self, cx: &mut MacroContext) -> String {
+    pub fn to_source(&self, cx: &mut Context) -> String {
         // ...
     }
 }
@@ -183,7 +183,7 @@ more closely resemble token streams [in the compiler
 itself][compiler-tokenstream], and more fine-grained manipulations will be
 available as well.
 
-Additionally, the `MacroContext` structure will initially be completely devoid
+Additionally, the `Context` structure will initially be completely devoid
 of functionality, but in the future it will be the entry point for [many other
 features][macro20] one would expect in macros 2.0
 
@@ -211,7 +211,7 @@ Putting this together, a macro crate might look like:
 
 extern crate rustc_macro;
 
-use rustc_macro::{MacroContext, TokenStream};
+use rustc_macro::{Context, TokenStream};
 
 // Rough equivalent of:
 //
@@ -223,7 +223,7 @@ use rustc_macro::{MacroContext, TokenStream};
 //
 // but requires `$e` to be a literal integer
 #[rustc_macro_define(double)]
-pub fn double(cx: &mut MacroContext, input: TokenStream) -> TokenStream {
+pub fn double(cx: &mut Context, input: TokenStream) -> TokenStream {
     let input = input.to_source(cx);
     let input = input.parse::<u64>().unwrap();
     let output = (2 * input).to_string();
@@ -232,7 +232,7 @@ pub fn double(cx: &mut MacroContext, input: TokenStream) -> TokenStream {
 }
 
 #[rustc_macro_derive(Double)]
-pub fn double(cx: &mut MacroContext, input: TokenStream) -> TokenStream {
+pub fn double(cx: &mut Context, input: TokenStream) -> TokenStream {
     // Convert `input` to a string, parse a struct/enum declaration, and then
     // return back source representing a number of items representing the
     // implementation of the `Double` trait for the struct/enum in question.
@@ -264,11 +264,11 @@ Each `rustc_macro_*` attribute requires the signature (similar to [macros
 [mac20sig]: http://ncameron.org/blog/libmacro/#tokenisingandquasiquoting
 
 ```rust
-fn(&mut MacroContext, TokenStream) -> TokenStream
+fn(&mut Context, TokenStream) -> TokenStream
 ```
 
 If a macro cannot process the input token stream, it is expected to panic for
-now, although eventually it will call methods on `MacroContext` to provide more
+now, although eventually it will call methods on `Context` to provide more
 structured errors. The compiler will wrap up the panic message and display it
 to the user appropriately. Eventually, however, librustc\_macro will provide more
 interesting methods of signaling errors to users.
@@ -380,10 +380,10 @@ The contents will look similar to
 extern crate rustc_macro;
 extern crate syntex_syntax;
 
-use macro::{MacroContext, TokenStream};
+use macro::{Context, TokenStream};
 
 #[rustc_macro_derive(Serialize)]
-pub fn derive_serialize(_cx: &mut MacroContext,
+pub fn derive_serialize(_cx: &mut Context,
                         input: TokenStream) -> TokenStream {
     let input = input.to_source();
 
@@ -469,7 +469,7 @@ pub struct Foo {
   this syntax as well, but it's unclear whether we have a concrete enough idea
   in mind to implement today.
 
-* Instead of passing around `&mut MacroContext` we could allow for storage of
+* Instead of passing around `&mut Context` we could allow for storage of
   compiler data structures in thread-local-storage. This would avoid threading
   around an extra parameter and perhaps wouldn't lose too much flexibility.
 
