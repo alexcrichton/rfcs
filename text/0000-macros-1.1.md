@@ -472,6 +472,13 @@ pub struct Foo {
   compiler data structures in thread-local-storage. This would avoid threading
   around an extra parameter and perhaps wouldn't lose too much flexibility.
 
+* Instead of `#![rustc_macro_crate]` macro crates could be loaded with `extern
+  crate foo` instead. The downsides of this are that the compiler would have to
+  generate an error if you import paths from it, so it doesn't behave like other
+  `extern crate` statements, and the compiler also doesn't know whether to look
+  for a target or host crate when it encounters such a definition. If both are
+  found it doesn't know which is the right to choose as well.
+
 # Unresolved questions
 [unresolved]: #unresolved-questions
 
