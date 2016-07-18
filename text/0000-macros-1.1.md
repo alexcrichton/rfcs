@@ -34,9 +34,11 @@ and a general feeling that Rust is not "production ready".
 The good news, however, is that this class of projects which require nightly
 Rust almost all require nightly for the reason of procedural macros. Even
 better, the full functionality of procedural macros is rarely needed, only
-custom derive! The purpose of this RFC, as a result, is to provide these crates
-a method of working on stable Rust with the desired ergonomics one would have
-on nightly otherwise.
+custom derive! Even better, custom derive typically doesn't *require* the features
+one would expect from a full-on macro system, such as hygiene and modularity,
+that normal procedural macros typically do. The purpose of this RFC, as a
+result, is to provide these crates a method of working on stable Rust with the
+desired ergonomics one would have on nightly otherwise.
 
 Unfortunately today's procedural macros are not without their architectural
 shortcomings as well. For example they're defined and imported with arcane
@@ -460,11 +462,15 @@ pub struct Foo {
   crate and is significantly harder to write. The marginal benefit of being
   slightly more flexible about how it's run likely isn't worth it.
 
-* The syntax for defining a macro will likely be different in the macros 2.0
-  world, that is it probably won't involve a function attribute like
-  `#[rustc_macro_derive]`. This interim system could possibly use this syntax as
-  well, but it's unclear whether we have a concrete enough idea in mind to
-  implement today.
+* The syntax for defining a macro may be different in the macros 2.0 world (e.g.
+  `pub macro foo` vs an attribute), that is it probably won't involve a function
+  attribute like `#[rustc_macro_derive]`. This interim system could possibly use
+  this syntax as well, but it's unclear whether we have a concrete enough idea
+  in mind to implement today.
+
+* Instead of passing around `&mut MacroContext` we could allow for storage of
+  compiler data structures in thread-local-storage. This would avoid threading
+  around an extra parameter and perhaps wouldn't lose too much flexibility.
 
 # Unresolved questions
 [unresolved]: #unresolved-questions
